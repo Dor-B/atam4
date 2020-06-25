@@ -39,7 +39,7 @@ int getRegBytes(char *reg){
 	if(reg[0] == 'e'){
 		return 4;
 	}
-	if(reg[1] == 'l'){
+	if((reg[1] == 'l') || (reg[2] == 'l')){
 		return 1;
 	}
 	return 2;
@@ -53,7 +53,8 @@ int main(int argc, char** argv){
 	char secondStr[MAX_STR];
 	
 	while(scanf("%s%s", firstStr, secondStr)){
-		if((strcmp(firstStr, "run") == 0) && (strcmp(firstStr, "profile") == 0)){
+		//printf("%s|%s\n", firstStr, secondStr);
+		if((strcmp(firstStr, "run") == 0) && (strcmp(secondStr, "profile") == 0)){
 			break;
 		}
 		char* allocStr;
@@ -87,12 +88,13 @@ int main(int argc, char** argv){
 			exit(1);
 		}
 	}
-	printf("start: %p\n", startAdrr);
+	/*printf("start: %p\n", startAdrr);
 	printf("end: %p\n", endAdrr);
 	printf("rax %s of size %d\n", regsNames.rax, regsNames.raxSize);
 	printf("rbx %s of size %d\n", regsNames.rbx, regsNames.rbxSize);
 	printf("rcx %s of size %d\n", regsNames.rcx, regsNames.rcxSize);
 	printf("rdx %s of size %d\n", regsNames.rdx, regsNames.rdxSize);
 	printf("rsi %s of size %d\n", regsNames.rsi, regsNames.rsiSize);
+	*/
 	return 0;
 }
