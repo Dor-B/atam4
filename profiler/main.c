@@ -61,7 +61,9 @@ void toSize(unsigned long long int* num, int bytes){
 void printDiff(char* varName, unsigned long long int before, unsigned long long int after, int size){
 	toSize(&before, size);
 	toSize(&after, size);
-	printf("PRF:: %s: %llu->%llu\n", varName, before, after);
+	if(before != after){
+		printf("PRF:: %s: %llu->%llu\n", varName, before, after);
+	}
 }
 
 long CALL(long res){
@@ -101,6 +103,12 @@ void run_profiler(pid_t childPid, long int startAddr, long int endAddr, RegsName
 		CALL(ptrace(PTRACE_POKETEXT, childPid, (void*) startAddr, (void *) origStart));
 		regsStart.rip -= 1;
 		CALL(ptrace(PTRACE_SETREGS, childPid, 0, &regsStart));
+		
+		// continue till next command
+		CALL(ptrace(PTRACE_SINGLESTEP, childPid, NULL, NULL));
+		CALL(wait(&wait_status));
+		// update start regs
+		CALL(ptrace(PTRACE_GETREGS, childPid, 0, &regsStart));
 		
 		// set breakpoint at end
 		CALL(ptrace(PTRACE_POKETEXT, childPid, (void*) endAddr, (void *) endTrap));
