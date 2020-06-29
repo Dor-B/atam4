@@ -1,0 +1,10 @@
+A rax
+a eax
+B ebx
+b bx
+C cx
+c cl
+D dl
+d dh
+S rsi
+run profile

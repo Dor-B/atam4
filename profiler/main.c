@@ -9,35 +9,53 @@
 #include <sys/user.h>
 
 #define MAX_STR 257
+#define XH_SIZE -2
 
+typedef struct reg_node{
+	char* var;
+	char* reg;
+	struct reg_node* next;
+} RegNode;
 
-typedef struct regs_names{
-	char* rax;
-	int raxSize;
-	
-	char* rbx;
-	int rbxSize;
-	
-	char* rcx;
-	int rcxSize;
-	
-	char* rdx;
-	int rdxSize;
-	
-	char* rsi;
-	int rsiSize;
-} RegsNames;
-
-void putNull(RegsNames* regsNames){
-	regsNames->rax = NULL;
-	regsNames->rbx = NULL;
-	regsNames->rcx = NULL;
-	regsNames->rdx = NULL;
-	regsNames->rsi = NULL;
+RegNode* createRegNode(char *var, char*reg){
+	RegNode* regNode = malloc(sizeof(RegNode));
+	regNode->var = malloc(MAX_STR);
+	strcpy(regNode->var, var);
+	regNode->reg = malloc(4);
+	strcpy(regNode->reg, reg);
+	regNode->next =  NULL;
+	return regNode;
 }
 
-bool checkRegister(char* str, char* reg1, char* reg2, char* reg3, char* reg4){
-	return (strcmp(str, reg1) == 0) || (strcmp(str, reg2) == 0) || (strcmp(str, reg3) == 0) || (strcmp(str, reg4) == 0);
+void destroyRegNode(RegNode* node){
+	if(node == NULL)
+		return;
+	free(node->var);
+	free(node->reg);
+	free(node);
+	destroyRegNode(node->next);
+}
+
+void insertSorted(RegNode** head, RegNode* node){
+	if(*head == NULL){
+		*head = node;
+		return;
+	}
+	if(strcmp((*head)->var, node->var) > 0){
+		node->next = *head;
+		*head = node;
+		return;
+	}
+	RegNode* curr = *head;
+	for(; curr->next != NULL && (strcmp(curr->next->var, node->var) < 0); curr = curr->next){}
+	node->next = curr->next;
+	curr->next = node;
+}
+
+
+
+bool checkRegister(char* str, char* reg1, char* reg2, char* reg3, char* reg4, char* reg5){
+	return (strcmp(str, reg1) == 0) || (strcmp(str, reg2) == 0) || (strcmp(str, reg3) == 0) || (strcmp(str, reg4) == 0) || (strcmp(str, reg5) == 0);
 }
 
 int getRegBytes(char *reg){
@@ -50,17 +68,24 @@ int getRegBytes(char *reg){
 	if((reg[1] == 'l') || (reg[2] == 'l')){
 		return 1;
 	}
+	if((reg[1] == 'h') || (reg[2] == 'h')){
+		return XH_SIZE;
+	}
 	return 2;
 }
 
-void toSize(unsigned long long int* num, int bytes){
+unsigned long long int toSize(unsigned long long int num, int bytes){
+	if(bytes == XH_SIZE){
+		return (num << (64 - 16)) >> (64 - 8);
+	}
 	int toShift = 64 - bytes*8;
-	*num = (*num << toShift) >> toShift;
+	return (num << toShift) >> toShift;
 }
 
 void printDiff(char* varName, unsigned long long int before, unsigned long long int after, int size){
-	toSize(&before, size);
-	toSize(&after, size);
+	before = toSize(before, size);
+	after = toSize(after, size);
+	
 	if(before != after){
 		printf("PRF:: %s: %llu->%llu\n", varName, before, after);
 	}
@@ -74,7 +99,7 @@ long CALL(long res){
 	return res;
 }
 
-void run_profiler(pid_t childPid, long int startAddr, long int endAddr, RegsNames regsNames){
+void run_profiler(pid_t childPid,unsigned long long int startAddr,unsigned long long int endAddr, RegNode* varList){
 	//printf("run_profile\n");
 	struct user_regs_struct regsStart;
 	struct user_regs_struct regsEnd;
@@ -104,11 +129,6 @@ void run_profiler(pid_t childPid, long int startAddr, long int endAddr, RegsName
 		regsStart.rip -= 1;
 		CALL(ptrace(PTRACE_SETREGS, childPid, 0, &regsStart));
 		
-		// continue till next command
-		CALL(ptrace(PTRACE_SINGLESTEP, childPid, NULL, NULL));
-		CALL(wait(&wait_status));
-		// update start regs
-		CALL(ptrace(PTRACE_GETREGS, childPid, 0, &regsStart));
 		
 		// set breakpoint at end
 		CALL(ptrace(PTRACE_POKETEXT, childPid, (void*) endAddr, (void *) endTrap));
@@ -131,22 +151,29 @@ void run_profiler(pid_t childPid, long int startAddr, long int endAddr, RegsName
 		CALL(ptrace(PTRACE_GETREGS, childPid, 0, &regsEnd));
 		
 		// COMPARE
-		// iterate over regsNames where not null
-		if(regsNames.rax != NULL){
-			printDiff(regsNames.rax, regsStart.rax, regsEnd.rax, regsNames.raxSize);
+		// iterate over list
+		for(RegNode* curr = varList; curr != NULL; curr = curr->next){
+			if(checkRegister(curr->reg, "rax", "eax", "ax", "al", "ah")){
+				printDiff(curr->var, regsStart.rax, regsEnd.rax, getRegBytes(curr->reg));
+			}
+			else if(checkRegister(curr->reg, "rbx", "ebx", "bx", "bl", "bh")){
+				printDiff(curr->var, regsStart.rbx, regsEnd.rbx, getRegBytes(curr->reg));
+			}
+			else if(checkRegister(curr->reg, "rcx", "ecx", "cx", "cl", "ch")){
+				printDiff(curr->var, regsStart.rcx, regsEnd.rcx, getRegBytes(curr->reg));
+			}
+			else if(checkRegister(curr->reg, "rdx", "edx", "dx", "dl", "dh")){
+				printDiff(curr->var, regsStart.rdx, regsEnd.rdx, getRegBytes(curr->reg));
+			}
+			else if(checkRegister(curr->reg, "rsi", "esi", "si", "sil", "XXX")){
+				printDiff(curr->var, regsStart.rsi, regsEnd.rsi, getRegBytes(curr->reg));
+			}
+			else{
+				printf("No such register!\n");
+				exit(1);
+			}
 		}
-		if(regsNames.rbx != NULL){
-			printDiff(regsNames.rbx, regsStart.rbx, regsEnd.rbx, regsNames.rbxSize);
-		}
-		if(regsNames.rcx != NULL){
-			printDiff(regsNames.rcx, regsStart.rcx, regsEnd.rcx, regsNames.rcxSize);
-		}
-		if(regsNames.rdx != NULL){
-			printDiff(regsNames.rcx, regsStart.rcx, regsEnd.rcx, regsNames.rcxSize);
-		}
-		if(regsNames.rsi != NULL){
-			printDiff(regsNames.rsi, regsStart.rsi, regsEnd.rsi, regsNames.rsiSize);
-		}
+		
 		
 		// wait till next breakpoint (of start) or process dies
 		CALL(ptrace(PTRACE_POKETEXT, childPid, (void*) startAddr, (void *) startTrap));
@@ -157,47 +184,18 @@ void run_profiler(pid_t childPid, long int startAddr, long int endAddr, RegsName
 
 
 int main(int argc, char** argv){
-	long int startAddr = strtol(argv[1], NULL, 16);
-	long int endAddr = strtol(argv[2], NULL, 16);
-	RegsNames regsNames;
-	putNull(&regsNames);
+	unsigned long long int startAddr = strtoull(argv[1], NULL, 16);
+	unsigned long long int endAddr = strtoull(argv[2], NULL, 16);
+	
 	char firstStr[MAX_STR];
 	char secondStr[MAX_STR];
-	
+	RegNode* varList = NULL;
 	while(scanf("%s%s", firstStr, secondStr)){
 		if((strcmp(firstStr, "run") == 0) && (strcmp(secondStr, "profile") == 0)){
 			break;
 		}
-		char* allocStr;
-		if(checkRegister(secondStr, "rax", "eax", "ax", "al")){
-			regsNames.rax = malloc(MAX_STR);
-			strcpy(regsNames.rax, firstStr);
-			regsNames.raxSize = getRegBytes(secondStr); 
-		}
-		else if(checkRegister(secondStr, "rbx", "ebx", "bx", "bl")){
-			regsNames.rbx = malloc(MAX_STR);
-			strcpy(regsNames.rbx, firstStr);
-			regsNames.rbxSize = getRegBytes(secondStr); 
-		}
-		else if(checkRegister(secondStr, "rcx", "ecx", "cx", "cl")){
-			regsNames.rcx = malloc(MAX_STR);
-			strcpy(regsNames.rcx, firstStr);
-			regsNames.rcxSize = getRegBytes(secondStr); 
-		}
-		else if(checkRegister(secondStr, "rdx", "edx", "dx", "dl")){
-			regsNames.rdx = malloc(MAX_STR);
-			strcpy(regsNames.rdx, firstStr);
-			regsNames.rdxSize = getRegBytes(secondStr); 
-		}
-		else if(checkRegister(secondStr, "rsi", "esi", "si", "sil")){
-			regsNames.rsi = malloc(MAX_STR);
-			strcpy(regsNames.rsi, firstStr);
-			regsNames.rsiSize = getRegBytes(secondStr); 
-		}
-		else{
-			printf("No such register!\n");
-			exit(1);
-		}
+		RegNode* newNode = createRegNode(firstStr, secondStr);
+		insertSorted(&varList, newNode);
 	}
 
 	pid_t pid = CALL(fork());
@@ -206,7 +204,8 @@ int main(int argc, char** argv){
 		CALL(execv(argv[3], argv + 3));
 	}
 	else{
-		run_profiler(pid, startAddr, endAddr, regsNames);
+		run_profiler(pid, startAddr, endAddr, varList);
+		destroyRegNode(varList);
 	}
 	
 	return 0;
